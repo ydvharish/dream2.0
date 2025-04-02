@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { Team, Question, Answer, TeamPair, RoundInfo, ExtraQuestion, GameResult } from '../types/game';
+import { Team, Question, Answer, TeamPair, RoundInfo, ExtraQuestion, GameResult, RoundQuestion, RoundQuestions } from '../types/game';
 import { useToast } from "@/components/ui/use-toast";
 import { toast as sonnerToast } from 'sonner';
 import { playPopSound, playCelebrationSound } from '@/lib/sounds';
@@ -21,6 +21,8 @@ interface GameContextProps {
   isGameFinished: boolean;
   showFinalResults: boolean;
   gameResult: GameResult | null;
+  roundQuestions: RoundQuestions;
+  isConfigureQuestionsMode: boolean;
   
   addTeam: () => void;
   removeTeam: (id: number) => void;
@@ -53,6 +55,10 @@ interface GameContextProps {
   nextQuestion: () => void;
   
   handleAnswerDrop: (answerId: number, targetTeamId: number) => void;
+  
+  enterConfigureQuestionsMode: () => void;
+  exitConfigureQuestionsMode: () => void;
+  updateRoundQuestion: (roundNumber: number, questionIndex: number, questionData: RoundQuestion) => void;
 }
 
 const defaultRounds: RoundInfo[] = [
@@ -61,10 +67,61 @@ const defaultRounds: RoundInfo[] = [
   { number: 3, questionsPerPair: 3, description: "Final round! Two teams compete for the championship with 3 questions." },
 ];
 
-const createDefaultQuestion = (id: number): Question => {
+const questionTemplates = [
+  "Name a reason why someone might cancel plans with a friend",
+  "Name something people commonly forget to pack when going on vacation",
+  "Name something that people are afraid of",
+  "Name a place where people take selfies",
+  "Name something people do to relax after a stressful day",
+  "Name an item people commonly lose and have to replace",
+  "Name a common excuse for being late to work",
+  "Name something people do while waiting in line",
+  "Name a popular holiday destination",
+  "Name something that makes noise at night and keeps people awake",
+  "Name something people collect as a hobby",
+  "Name a reason someone might call in sick to work (when they're not actually sick)",
+  "Name something people do to prepare for a job interview",
+  "Name something parents tell their children not to do",
+  "Name a common New Year's resolution"
+];
+
+const defaultAnswers = [
+  { text: "Answer 1", points: 80 },
+  { text: "Answer 2", points: 70 },
+  { text: "Answer 3", points: 60 },
+  { text: "Answer 4", points: 50 },
+  { text: "Answer 5", points: 40 },
+  { text: "Answer 6", points: 30 },
+  { text: "Answer 7", points: 20 },
+  { text: "Answer 8", points: 10 }
+];
+
+let usedQuestionIndices: { [key: string]: number[] } = {
+  "1": [],
+  "2": [],
+  "3": []
+};
+
+const createDefaultQuestion = (id: number, pairId?: string, roundNumber?: number, questionNumber?: number): Question => {
+  let questionIndex = Math.floor(Math.random() * questionTemplates.length);
+  
+  if (roundNumber) {
+    const roundKey = roundNumber.toString();
+    
+    if (usedQuestionIndices[roundKey].length >= questionTemplates.length) {
+      usedQuestionIndices[roundKey] = [];
+    }
+    
+    while (usedQuestionIndices[roundKey].includes(questionIndex)) {
+      questionIndex = Math.floor(Math.random() * questionTemplates.length);
+    }
+    
+    usedQuestionIndices[roundKey].push(questionIndex);
+  }
+  
   return {
     id,
-    text: "Name a reason why someone might cancel plans with a friend",
+    text: questionTemplates[questionIndex],
     isRevealed: false,
     isStriked: false,
     answers: Array.from({ length: 8 }, (_, i) => ({
@@ -90,6 +147,44 @@ const createDefaultExtraQuestion = (id: number): ExtraQuestion => {
   };
 };
 
+const createDefaultRoundQuestions = (): RoundQuestions => {
+  const questions: RoundQuestions = {};
+  
+  questions[1] = Array.from({ length: 5 }, (_, i) => ({
+    questionNumber: i + 1,
+    text: questionTemplates[(i) % questionTemplates.length],
+    answers: defaultAnswers.map((ans, j) => ({ 
+      id: j + 1, 
+      text: ans.text, 
+      points: ans.points 
+    }))
+  }));
+  
+  questions[2] = Array.from({ length: 8 }, (_, i) => ({
+    questionNumber: i + 1,
+    text: questionTemplates[(i + 5) % questionTemplates.length],
+    answers: defaultAnswers.map((ans, j) => ({ 
+      id: j + 1, 
+      text: ans.text, 
+      points: ans.points 
+    }))
+  }));
+  
+  questions[3] = Array.from({ length: 3 }, (_, i) => ({
+    questionNumber: i + 1,
+    text: questionTemplates[(i + 10) % questionTemplates.length],
+    answers: defaultAnswers.map((ans, j) => ({ 
+      id: j + 1, 
+      text: `Answer ${j + 1}`, 
+      points: 10 * (8 - j) 
+    }))
+  }));
+  
+  return questions;
+};
+
+const usedPairQuestions: { [key: string]: number[] } = {};
+
 const GameContext = createContext<GameContextProps | undefined>(undefined);
 
 export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
@@ -108,6 +203,11 @@ export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [isGameFinished, setIsGameFinished] = useState(false);
   const [showFinalResults, setShowFinalResults] = useState(false);
   const [gameResult, setGameResult] = useState<GameResult | null>(null);
+  const [roundQuestions, setRoundQuestions] = useState<RoundQuestions>(createDefaultRoundQuestions());
+  const [isConfigureQuestionsMode, setIsConfigureQuestionsMode] = useState(false);
+  const [usedQuestionsInRound, setUsedQuestionsInRound] = useState<{[round: number]: number[]}>({
+    1: [], 2: [], 3: []
+  });
   const { toast } = useToast();
 
   useEffect(() => {
@@ -127,17 +227,23 @@ export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   useEffect(() => {
     if (isGameFinished) {
-      const sortedTeams = [...teams].sort((a, b) => b.score - a.score);
-      setStandings(sortedTeams);
+      const roundThreeSorted = [...teams]
+        .filter(team => !team.isEliminated)
+        .sort((a, b) => (b.roundScores?.[3] || 0) - (a.roundScores?.[3] || 0));
       
-      if (sortedTeams.length >= 2) {
-        const champion = sortedTeams[0];
-        const runnerUp = sortedTeams[1];
+      setStandings(roundThreeSorted);
+      
+      if (roundThreeSorted.length >= 2) {
+        const champion = roundThreeSorted[0];
+        const runnerUp = roundThreeSorted[1];
+        
+        const championRound3Score = champion.roundScores?.[3] || 0;
+        const runnerUpRound3Score = runnerUp.roundScores?.[3] || 0;
         
         setGameResult({
           champion,
           runnerUp,
-          finalRoundScore: `${champion.score} - ${runnerUp.score}`
+          finalRoundScore: `${championRound3Score} - ${runnerUpRound3Score}`
         });
       }
     } 
@@ -159,6 +265,34 @@ export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
     }
   }, [currentRound, rounds]);
+
+  const enterConfigureQuestionsMode = () => {
+    setIsConfigureQuestionsMode(true);
+  };
+
+  const exitConfigureQuestionsMode = () => {
+    setIsConfigureQuestionsMode(false);
+  };
+
+  const updateRoundQuestion = (roundNumber: number, questionIndex: number, questionData: RoundQuestion) => {
+    setRoundQuestions(prev => {
+      const updatedRoundQuestions = { ...prev };
+      if (!updatedRoundQuestions[roundNumber]) {
+        updatedRoundQuestions[roundNumber] = [];
+      }
+      
+      while (updatedRoundQuestions[roundNumber].length <= questionIndex) {
+        updatedRoundQuestions[roundNumber].push({
+          questionNumber: updatedRoundQuestions[roundNumber].length + 1,
+          text: "",
+          answers: defaultAnswers.map((ans, j) => ({ id: j + 1, text: ans.text, points: ans.points }))
+        });
+      }
+      
+      updatedRoundQuestions[roundNumber][questionIndex] = questionData;
+      return updatedRoundQuestions;
+    });
+  };
 
   const addTeam = () => {
     if (teams.length >= 15) {
@@ -217,6 +351,60 @@ export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   };
 
+  const getUnusedQuestionIndex = (pairId: string, round: number, questionNumber: number): number => {
+    const pairQuestionKey = `${pairId}-${round}-${questionNumber}`;
+    const availableQuestions = roundQuestions[round] || [];
+    
+    if (availableQuestions.length === 0) {
+      return Math.floor(Math.random() * questionTemplates.length);
+    }
+    
+    const usedIndices = usedQuestionsInRound[round] || [];
+    
+    if (usedIndices.length >= availableQuestions.length) {
+      if (availableQuestions.length === 1) {
+        return 0;
+      }
+      let index = Math.floor(Math.random() * availableQuestions.length);
+      const lastUsed = usedIndices[usedIndices.length - 1];
+      if (index === lastUsed && availableQuestions.length > 1) {
+        index = (index + 1) % availableQuestions.length;
+      }
+      
+      setUsedQuestionsInRound(prev => {
+        const updated = {...prev};
+        updated[round] = [index];
+        return updated;
+      });
+      
+      return index;
+    }
+    
+    let availableIndices = Array.from(
+      { length: availableQuestions.length }, 
+      (_, i) => i
+    ).filter(i => !usedIndices.includes(i));
+    
+    if (availableIndices.length === 0) {
+      let randomIndex = Math.floor(Math.random() * availableQuestions.length);
+      setUsedQuestionsInRound(prev => {
+        const updated = {...prev};
+        updated[round] = [...(prev[round] || []), randomIndex];
+        return updated;
+      });
+      return randomIndex;
+    }
+    
+    const chosenIndex = availableIndices[Math.floor(Math.random() * availableIndices.length)];
+    setUsedQuestionsInRound(prev => {
+      const updated = {...prev};
+      updated[round] = [...(prev[round] || []), chosenIndex];
+      return updated;
+    });
+    
+    return chosenIndex;
+  };
+
   const startQuestionPair = () => {
     if (selectedTeams.length !== 2) {
       toast({
@@ -231,11 +419,34 @@ export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const team2 = teams.find(t => t.id === selectedTeams[1]);
 
     if (team1 && team2) {
+      const pairId = `pair-${team1.id}-${team2.id}`;
+      
       setCurrentPair({ 
         team1: {...team1, score: 0},
-        team2: {...team2, score: 0}
+        team2: {...team2, score: 0},
+        pairId
       });
-      setCurrentQuestion(createDefaultQuestion(1));
+      
+      const questionIndex = getUnusedQuestionIndex(pairId, currentRound, 1);
+      
+      if (roundQuestions[currentRound] && roundQuestions[currentRound].length > questionIndex) {
+        const predefinedQuestion = roundQuestions[currentRound][questionIndex];
+        setCurrentQuestion({
+          id: 1,
+          text: predefinedQuestion.text,
+          isRevealed: false,
+          isStriked: false,
+          answers: predefinedQuestion.answers.map(a => ({
+            id: a.id,
+            text: a.text,
+            points: a.points,
+            isRevealed: false
+          }))
+        });
+      } else {
+        setCurrentQuestion(createDefaultQuestion(1, pairId, currentRound, 1));
+      }
+      
       setIsQuestionMode(true);
       setCurrentQuestionNumber(1);
       
@@ -250,9 +461,32 @@ export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const nextQuestion = () => {
     const nextNum = currentQuestionNumber + 1;
     
-    if (nextNum <= totalQuestions) {
+    if (nextNum <= totalQuestions && currentPair) {
       setCurrentQuestionNumber(nextNum);
-      setCurrentQuestion(createDefaultQuestion(nextNum));
+      
+      const questionIndex = getUnusedQuestionIndex(
+        currentPair.pairId || '',
+        currentRound,
+        nextNum
+      );
+      
+      if (roundQuestions[currentRound] && roundQuestions[currentRound].length > questionIndex) {
+        const predefinedQuestion = roundQuestions[currentRound][questionIndex];
+        setCurrentQuestion({
+          id: nextNum,
+          text: predefinedQuestion.text,
+          isRevealed: false,
+          isStriked: false,
+          answers: predefinedQuestion.answers.map(a => ({
+            id: a.id,
+            text: a.text,
+            points: a.points,
+            isRevealed: false
+          }))
+        });
+      } else {
+        setCurrentQuestion(createDefaultQuestion(nextNum, currentPair.pairId, currentRound, nextNum));
+      }
     } else {
       finishCurrentPair();
     }
@@ -453,6 +687,12 @@ export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       setIsGameFinished(false);
       setShowFinalResults(false);
       
+      setUsedQuestionsInRound(prev => {
+        const updated = {...prev};
+        updated[roundNumber] = [];
+        return updated;
+      });
+      
       setTeams(teams.map(team => ({ ...team, hasPlayed: false })));
     }
   };
@@ -463,7 +703,12 @@ export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const startNextRound = () => {
-    const sortedTeams = [...teams].sort((a, b) => b.score - a.score);
+    const sortedTeams = [...teams].sort((a, b) => {
+      const aRoundScore = a.roundScores?.[currentRound] || 0;
+      const bRoundScore = b.roundScores?.[currentRound] || 0;
+      return bRoundScore - aRoundScore;
+    });
+    
     let advancingTeams: number[];
     
     if (currentRound === 1) {
@@ -486,6 +731,12 @@ export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         }
       };
     }));
+    
+    setUsedQuestionsInRound(prev => {
+      const updated = {...prev};
+      updated[currentRound + 1] = [];
+      return updated;
+    });
     
     setCurrentRound(currentRound + 1);
     setRoundCompleted(false);
@@ -531,6 +782,8 @@ export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       isGameFinished,
       showFinalResults,
       gameResult,
+      roundQuestions,
+      isConfigureQuestionsMode,
       addTeam,
       removeTeam,
       updateTeamName,
@@ -555,7 +808,10 @@ export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       continueRound,
       startNextRound,
       nextQuestion,
-      handleAnswerDrop
+      handleAnswerDrop,
+      enterConfigureQuestionsMode,
+      exitConfigureQuestionsMode,
+      updateRoundQuestion
     }}>
       {children}
     </GameContext.Provider>

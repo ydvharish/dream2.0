@@ -1,3 +1,4 @@
+
 import { useGame } from "@/context/GameContext";
 import { Button } from "@/components/ui/button";
 import { useNavigate } from "react-router-dom";
@@ -8,7 +9,8 @@ import GameRoundInfo from "@/components/GameRoundInfo";
 import GameStandings from "@/components/GameStandings";
 import ExtraQuestionsModal from "@/components/ExtraQuestionsModal";
 import FinalResults from "@/components/FinalResults";
-import { ChevronLeft, ArrowLeft, ArrowRight } from "lucide-react";
+import ConfigureRoundQuestions from "@/components/ConfigureRoundQuestions";
+import { ChevronLeft, ArrowLeft, ArrowRight, Settings } from "lucide-react";
 import { useEffect, useState } from "react";
 
 const GamePage = () => {
@@ -19,7 +21,9 @@ const GamePage = () => {
     changeRound, 
     roundCompleted,
     isGameFinished,
-    showFinalResults
+    showFinalResults,
+    isConfigureQuestionsMode,
+    enterConfigureQuestionsMode
   } = useGame();
   
   const navigate = useNavigate();
@@ -58,7 +62,9 @@ const GamePage = () => {
           </div>
         </div>
         
-        {isGameFinished ? (
+        {isConfigureQuestionsMode ? (
+          <ConfigureRoundQuestions />
+        ) : isGameFinished ? (
           <div>
             <FinalResults />
             <div className="mt-8 flex justify-center">
@@ -136,6 +142,15 @@ const GamePage = () => {
                   Round {round.number}
                 </Button>
               ))}
+            </div>
+            
+            <div className="mb-8">
+              <Button
+                onClick={enterConfigureQuestionsMode}
+                className="bg-quiz-purple hover:bg-purple-700 mx-auto block mb-6 hover-scale"
+              >
+                <Settings className="mr-2" /> Configure Round {currentRound} Questions
+              </Button>
             </div>
             
             <TeamGrid />

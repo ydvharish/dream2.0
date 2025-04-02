@@ -31,6 +31,7 @@ export interface Answer {
 export interface TeamPair {
   team1: Team;
   team2: Team;
+  pairId?: string; // Added pairId to identify unique pairs
 }
 
 export interface RoundInfo {
@@ -50,4 +51,18 @@ export interface GameResult {
   champion: Team;
   runnerUp: Team;
   finalRoundScore?: string;
+}
+
+export interface RoundQuestion {
+  questionNumber: number;
+  text: string;
+  answers: {
+    id: number;
+    text: string;
+    points: number;
+  }[];
+}
+
+export interface RoundQuestions {
+  [roundNumber: number]: RoundQuestion[];
 }
