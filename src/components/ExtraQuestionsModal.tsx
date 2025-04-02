@@ -1,15 +1,22 @@
-
 import { useState } from 'react';
 import { useGame } from '@/context/GameContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { Edit2, Save, Plus, Eye, EyeOff } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { Edit2, Save, Plus, Eye, EyeOff, Star } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 const ExtraQuestionsModal = () => {
-  const { extraQuestions, addExtraQuestion, updateExtraQuestion, updateExtraAnswer } = useGame();
+  const { 
+    extraQuestions, 
+    addExtraQuestion, 
+    updateExtraQuestion, 
+    updateExtraAnswer,
+    assignExtraQuestionPoints,
+    teams
+  } = useGame();
+  
   const [editingQuestion, setEditingQuestion] = useState<number | null>(null);
   const [questionText, setQuestionText] = useState('');
   const [editingAnswer, setEditingAnswer] = useState<{ questionId: number, answerId: number } | null>(null);
@@ -18,7 +25,8 @@ const ExtraQuestionsModal = () => {
   const [revealedQuestions, setRevealedQuestions] = useState<number[]>([]);
   const [revealedAnswers, setRevealedAnswers] = useState<{questionId: number, answerId: number}[]>([]);
   const [isFullScreen, setIsFullScreen] = useState(false);
-  const navigate = useNavigate();
+  const [selectedTeam, setSelectedTeam] = useState<string>("");
+  const [customPoints, setCustomPoints] = useState<string>("");
 
   const startEditingQuestion = (id: number, text: string) => {
     setEditingQuestion(id);
@@ -67,7 +75,18 @@ const ExtraQuestionsModal = () => {
     }
   };
 
-  // Full screen version showing in a separate page-like view
+  const handleAddPoints = () => {
+    const teamId = parseInt(selectedTeam);
+    const points = parseInt(customPoints);
+    
+    if (isNaN(teamId) || isNaN(points)) {
+      return;
+    }
+    
+    assignExtraQuestionPoints(teamId, points);
+    setCustomPoints("");
+  };
+
   if (isFullScreen) {
     return (
       <div className="min-h-screen bg-quiz-blue p-4">
@@ -86,6 +105,55 @@ const ExtraQuestionsModal = () => {
             </h1>
             
             <div></div>
+          </div>
+          
+          <div className="mb-8 p-4 bg-blue-800 rounded-lg">
+            <h2 className="text-xl font-bold text-white mb-4">Assign Points to Teams</h2>
+            <div className="grid grid-cols-3 gap-4">
+              <Select value={selectedTeam} onValueChange={setSelectedTeam}>
+                <SelectTrigger className="bg-blue-700 text-white border-blue-600">
+                  <SelectValue placeholder="Select team" />
+                </SelectTrigger>
+                <SelectContent className="bg-blue-700 text-white border-blue-600">
+                  {teams.map(team => (
+                    <SelectItem key={team.id} value={team.id.toString()} className="hover:bg-blue-600">
+                      Team {team.id}: {team.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              
+              <Input
+                type="number"
+                className="bg-blue-700 text-white border-blue-600"
+                placeholder="Points"
+                value={customPoints}
+                onChange={(e) => setCustomPoints(e.target.value)}
+              />
+              
+              <Button 
+                onClick={handleAddPoints} 
+                className="bg-quiz-yellow text-quiz-blue hover:bg-yellow-500 font-bold"
+                disabled={!selectedTeam || !customPoints}
+              >
+                Add Points
+              </Button>
+            </div>
+            
+            {selectedTeam && (
+              <div className="mt-4 flex items-center text-white">
+                <span className="mr-2">Selected:</span>
+                <div className="bg-blue-700 px-3 py-1 rounded flex items-center">
+                  <div className="font-bold">
+                    Team {selectedTeam} 
+                  </div>
+                  <Star className="text-quiz-yellow ml-2" size={16} />
+                  <div className="ml-1">
+                    {teams.find(t => t.id.toString() === selectedTeam)?.score || 0} pts
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
           
           <div className="grid md:grid-cols-2 gap-6">
@@ -206,7 +274,6 @@ const ExtraQuestionsModal = () => {
     );
   }
 
-  // Dialog version for normal modal view
   return (
     <Dialog>
       <DialogTrigger asChild>
@@ -221,6 +288,55 @@ const ExtraQuestionsModal = () => {
         <DialogHeader>
           <DialogTitle className="text-quiz-yellow text-2xl">Extra Questions</DialogTitle>
         </DialogHeader>
+        
+        <div className="mb-6 p-4 bg-blue-800 rounded-lg">
+          <h3 className="text-lg font-bold text-white mb-3">Assign Points to Teams</h3>
+          <div className="grid grid-cols-3 gap-3">
+            <Select value={selectedTeam} onValueChange={setSelectedTeam}>
+              <SelectTrigger className="bg-blue-700 text-white border-blue-600">
+                <SelectValue placeholder="Select team" />
+              </SelectTrigger>
+              <SelectContent className="bg-blue-700 text-white border-blue-600">
+                {teams.map(team => (
+                  <SelectItem key={team.id} value={team.id.toString()} className="hover:bg-blue-600">
+                    Team {team.id}: {team.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            
+            <Input
+              type="number"
+              className="bg-blue-700 text-white border-blue-600"
+              placeholder="Points"
+              value={customPoints}
+              onChange={(e) => setCustomPoints(e.target.value)}
+            />
+            
+            <Button 
+              onClick={handleAddPoints} 
+              className="bg-quiz-yellow text-quiz-blue hover:bg-yellow-500"
+              disabled={!selectedTeam || !customPoints}
+            >
+              Add Points
+            </Button>
+          </div>
+          
+          {selectedTeam && (
+            <div className="mt-3 flex items-center text-white">
+              <span className="mr-2">Selected:</span>
+              <div className="bg-blue-700 px-3 py-1 rounded flex items-center">
+                <div className="font-bold">
+                  Team {selectedTeam} 
+                </div>
+                <Star className="text-quiz-yellow ml-2" size={16} />
+                <div className="ml-1">
+                  {teams.find(t => t.id.toString() === selectedTeam)?.score || 0} pts
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
         
         <div className="space-y-8 mt-4">
           {extraQuestions.map((question) => (

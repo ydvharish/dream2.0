@@ -1,7 +1,9 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { Team, Question, Answer, TeamPair, RoundInfo, ExtraQuestion } from '../types/game';
+import { Team, Question, Answer, TeamPair, RoundInfo, ExtraQuestion, GameResult } from '../types/game';
 import { useToast } from "@/components/ui/use-toast";
 import { toast as sonnerToast } from 'sonner';
+import { playPopSound, playCelebrationSound } from '@/lib/sounds';
+import { showConfetti } from '@/lib/confetti';
 
 interface GameContextProps {
   teams: Team[];
@@ -14,6 +16,11 @@ interface GameContextProps {
   extraQuestions: ExtraQuestion[];
   standings: Team[];
   roundCompleted: boolean;
+  currentQuestionNumber: number;
+  totalQuestions: number;
+  isGameFinished: boolean;
+  showFinalResults: boolean;
+  gameResult: GameResult | null;
   
   addTeam: () => void;
   removeTeam: (id: number) => void;
@@ -37,19 +44,21 @@ interface GameContextProps {
   addExtraQuestion: () => void;
   updateExtraQuestion: (id: number, text: string) => void;
   updateExtraAnswer: (questionId: number, answerId: number, text: string, points: number) => void;
+  assignExtraQuestionPoints: (teamId: number, points: number) => void;
   
   finishCurrentPair: () => void;
   changeRound: (roundNumber: number) => void;
   continueRound: () => void;
   startNextRound: () => void;
+  nextQuestion: () => void;
   
   handleAnswerDrop: (answerId: number, targetTeamId: number) => void;
 }
 
 const defaultRounds: RoundInfo[] = [
-  { number: 1, questionsPerPair: 5, description: "Teams compete in pairs. Each pair will answer 5 questions." },
-  { number: 2, questionsPerPair: 2, description: "Teams compete in pairs. Each pair will answer 2 questions." },
-  { number: 3, questionsPerPair: 3, description: "Final round! Two teams compete for the championship." },
+  { number: 1, questionsPerPair: 1, description: "Round 1: Teams compete in pairs. Each pair will answer 1 question." },
+  { number: 2, questionsPerPair: 2, description: "Round 2: Teams compete in pairs. Each pair will answer 2 questions." },
+  { number: 3, questionsPerPair: 3, description: "Final round! Two teams compete for the championship with 3 questions." },
 ];
 
 const createDefaultQuestion = (id: number): Question => {
@@ -94,6 +103,11 @@ export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [extraQuestions, setExtraQuestions] = useState<ExtraQuestion[]>([createDefaultExtraQuestion(1)]);
   const [standings, setStandings] = useState<Team[]>([]);
   const [roundCompleted, setRoundCompleted] = useState(false);
+  const [currentQuestionNumber, setCurrentQuestionNumber] = useState(1);
+  const [totalQuestions, setTotalQuestions] = useState(1);
+  const [isGameFinished, setIsGameFinished] = useState(false);
+  const [showFinalResults, setShowFinalResults] = useState(false);
+  const [gameResult, setGameResult] = useState<GameResult | null>(null);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -103,7 +117,8 @@ export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         name: `Team ${i + 1}`,
         score: 0,
         answers: 0,
-        hasPlayed: false
+        hasPlayed: false,
+        roundScores: {1: 0, 2: 0, 3: 0}
       }));
       setTeams(initialTeams);
       setStandings(initialTeams);
@@ -111,9 +126,39 @@ export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   }, [teams.length]);
 
   useEffect(() => {
-    const sortedTeams = [...teams].sort((a, b) => b.score - a.score);
-    setStandings(sortedTeams);
-  }, [teams]);
+    if (isGameFinished) {
+      const sortedTeams = [...teams].sort((a, b) => b.score - a.score);
+      setStandings(sortedTeams);
+      
+      if (sortedTeams.length >= 2) {
+        const champion = sortedTeams[0];
+        const runnerUp = sortedTeams[1];
+        
+        setGameResult({
+          champion,
+          runnerUp,
+          finalRoundScore: `${champion.score} - ${runnerUp.score}`
+        });
+      }
+    } 
+    else {
+      const sortedTeams = [...teams].sort((a, b) => {
+        const aRoundScore = a.roundScores?.[currentRound] || 0;
+        const bRoundScore = b.roundScores?.[currentRound] || 0;
+        return bRoundScore - aRoundScore;
+      });
+      setStandings(sortedTeams);
+    }
+  }, [teams, isGameFinished, currentRound]);
+  
+  useEffect(() => {
+    if (currentRound && rounds) {
+      const roundInfo = rounds.find(r => r.number === currentRound);
+      if (roundInfo) {
+        setTotalQuestions(roundInfo.questionsPerPair);
+      }
+    }
+  }, [currentRound, rounds]);
 
   const addTeam = () => {
     if (teams.length >= 15) {
@@ -125,7 +170,14 @@ export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       return;
     }
     const newId = teams.length > 0 ? Math.max(...teams.map(t => t.id)) + 1 : 1;
-    const newTeam = { id: newId, name: `Team ${newId}`, score: 0, answers: 0, hasPlayed: false };
+    const newTeam = { 
+      id: newId, 
+      name: `Team ${newId}`, 
+      score: 0, 
+      answers: 0, 
+      hasPlayed: false,
+      roundScores: {1: 0, 2: 0, 3: 0}
+    };
     setTeams([...teams, newTeam]);
   };
 
@@ -179,9 +231,13 @@ export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const team2 = teams.find(t => t.id === selectedTeams[1]);
 
     if (team1 && team2) {
-      setCurrentPair({ team1, team2 });
+      setCurrentPair({ 
+        team1: {...team1, score: 0},
+        team2: {...team2, score: 0}
+      });
       setCurrentQuestion(createDefaultQuestion(1));
       setIsQuestionMode(true);
+      setCurrentQuestionNumber(1);
       
       setTeams(teams.map(team => 
         team.id === team1.id || team.id === team2.id 
@@ -191,9 +247,21 @@ export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   };
 
+  const nextQuestion = () => {
+    const nextNum = currentQuestionNumber + 1;
+    
+    if (nextNum <= totalQuestions) {
+      setCurrentQuestionNumber(nextNum);
+      setCurrentQuestion(createDefaultQuestion(nextNum));
+    } else {
+      finishCurrentPair();
+    }
+  };
+
   const revealQuestion = () => {
     if (currentQuestion) {
       setCurrentQuestion({ ...currentQuestion, isRevealed: true, isHidden: false });
+      playPopSound();
     }
   };
 
@@ -217,12 +285,17 @@ export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const revealAnswer = (answerId: number) => {
     if (currentQuestion) {
+      playPopSound();
       setCurrentQuestion({
         ...currentQuestion,
         answers: currentQuestion.answers.map(answer => 
           answer.id === answerId ? { ...answer, isRevealed: true, isHidden: false } : answer
         )
       });
+      
+      setTimeout(() => {
+        showConfetti(Math.random() * 0.5 + 0.25, Math.random() * 0.3 + 0.3);
+      }, 300);
     }
   };
 
@@ -255,9 +328,19 @@ export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const addPoints = (teamId: number, points: number) => {
-    setTeams(teams.map(team => 
-      team.id === teamId ? { ...team, score: team.score + points } : team
-    ));
+    setTeams(teams.map(team => {
+      if (team.id === teamId) {
+        const updatedRoundScores = {...(team.roundScores || {1: 0, 2: 0, 3: 0})};
+        updatedRoundScores[currentRound] = (updatedRoundScores[currentRound] || 0) + points;
+        
+        return { 
+          ...team, 
+          score: team.score + points,
+          roundScores: updatedRoundScores
+        };
+      }
+      return team;
+    }));
     
     if (currentPair) {
       if (teamId === currentPair.team1.id) {
@@ -277,6 +360,11 @@ export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           }
         });
       }
+    }
+    
+    if (points > 0) {
+      playCelebrationSound();
+      showConfetti(Math.random() * 0.5 + 0.25, Math.random() * 0.3 + 0.3);
     }
   };
 
@@ -312,22 +400,58 @@ export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         : question
     ));
   };
+  
+  const assignExtraQuestionPoints = (teamId: number, points: number) => {
+    addPoints(teamId, points);
+    sonnerToast.success(`${points} points added to Team ${teamId} from extra question`);
+  };
 
   const finishCurrentPair = () => {
+    if (currentPair) {
+      const team1 = teams.find(t => t.id === currentPair.team1.id);
+      const team2 = teams.find(t => t.id === currentPair.team2.id);
+      
+      if (team1 && team2) {
+        setTeams(teams.map(team => {
+          if (team.id === team1.id) {
+            return team;
+          }
+          if (team.id === team2.id) {
+            return team;
+          }
+          return team;
+        }));
+      }
+    }
+
     setCurrentPair(null);
     setCurrentQuestion(null);
     setIsQuestionMode(false);
     setSelectedTeams([]);
+    setCurrentQuestionNumber(1);
     
-    // Always show standings after finishing a team pair
     setRoundCompleted(true);
+    
+    const teamsInRound = teams.filter(team => !team.isEliminated);
+    const allTeamsPlayedInRound = teamsInRound.every(team => team.hasPlayed);
+    
+    if (currentRound === 3 && allTeamsPlayedInRound) {
+      setIsGameFinished(true);
+      setShowFinalResults(true);
+    }
   };
 
   const changeRound = (roundNumber: number) => {
     if (roundNumber >= 1 && roundNumber <= rounds.length) {
       setCurrentRound(roundNumber);
-      finishCurrentPair();
+      setCurrentPair(null);
+      setCurrentQuestion(null);
+      setIsQuestionMode(false);
       setRoundCompleted(false);
+      setSelectedTeams([]);
+      setCurrentQuestionNumber(1);
+      setIsGameFinished(false);
+      setShowFinalResults(false);
       
       setTeams(teams.map(team => ({ ...team, hasPlayed: false })));
     }
@@ -340,7 +464,7 @@ export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const startNextRound = () => {
     const sortedTeams = [...teams].sort((a, b) => b.score - a.score);
-    let advancingTeams;
+    let advancingTeams: number[];
     
     if (currentRound === 1) {
       advancingTeams = sortedTeams.slice(0, 4).map(team => team.id);
@@ -356,14 +480,22 @@ export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         ...team,
         isEliminated: !isAdvancing,
         hasPlayed: false,
-        score: isAdvancing ? 0 : team.score,
-        answers: isAdvancing ? 0 : team.answers
+        roundScores: {
+          ...(team.roundScores || {1: 0, 2: 0, 3: 0}),
+          [currentRound + 1]: 0
+        }
       };
     }));
     
     setCurrentRound(currentRound + 1);
     setRoundCompleted(false);
     setSelectedTeams([]);
+    setCurrentQuestionNumber(1);
+    
+    if (currentRound === 3) {
+      setIsGameFinished(true);
+      setShowFinalResults(true);
+    }
   };
 
   const handleAnswerDrop = (answerId: number, targetTeamId: number) => {
@@ -377,6 +509,7 @@ export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         hideAnswer(answerId);
         
         sonnerToast.success(`${answer.points} points added to Team ${targetTeamId}`);
+        playCelebrationSound();
       }
     }
   };
@@ -393,6 +526,11 @@ export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       extraQuestions,
       standings,
       roundCompleted,
+      currentQuestionNumber,
+      totalQuestions,
+      isGameFinished,
+      showFinalResults,
+      gameResult,
       addTeam,
       removeTeam,
       updateTeamName,
@@ -411,10 +549,12 @@ export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       addExtraQuestion,
       updateExtraQuestion,
       updateExtraAnswer,
+      assignExtraQuestionPoints,
       finishCurrentPair,
       changeRound,
       continueRound,
       startNextRound,
+      nextQuestion,
       handleAnswerDrop
     }}>
       {children}

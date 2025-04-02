@@ -3,15 +3,19 @@ import { useState, useRef } from 'react';
 import { useGame } from '@/context/GameContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Edit2, Save, Star, X, Eye, EyeOff, Ban } from 'lucide-react';
+import { Edit2, Save, Star, X, Eye, EyeOff, Ban, ArrowRight } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
+import { showConfetti } from '@/lib/confetti';
+import { playPopSound, playCelebrationSound } from '@/lib/sounds';
 
 const QuestionPane = () => {
   const {
     currentQuestion,
     currentPair,
+    currentQuestionNumber,
+    totalQuestions,
     revealQuestion,
     hideQuestion,
     revealAnswer,
@@ -23,7 +27,8 @@ const QuestionPane = () => {
     handleAnswerDrop,
     incrementTeamAnswers,
     strikeQuestion,
-    unstrikeQuestion
+    unstrikeQuestion,
+    nextQuestion
   } = useGame();
 
   const [editingQuestion, setEditingQuestion] = useState(false);
@@ -68,6 +73,12 @@ const QuestionPane = () => {
         revealAnswer(answerId);
       } else {
         revealAnswer(answerId);
+        playPopSound();
+        
+        // Show celebration animation when revealing answer
+        setTimeout(() => {
+          showConfetti(Math.random() * 0.5 + 0.25, 0.4);
+        }, 200);
       }
     }
   };
@@ -94,6 +105,10 @@ const QuestionPane = () => {
     if (draggedAnswerId !== null) {
       handleAnswerDrop(draggedAnswerId, targetTeamId);
       setDraggedAnswerId(null);
+      
+      // Show celebration animation when dropping answer
+      showConfetti(targetTeamId === currentPair.team1.id ? 0.2 : 0.8, 0.3);
+      playCelebrationSound();
     }
   };
 
@@ -105,6 +120,12 @@ const QuestionPane = () => {
       addPoints(teamId, points);
       toast.success(`${points} points added to Team ${teamId}`);
       teamId === currentPair.team1.id ? setCustomPointsTeam1('') : setCustomPointsTeam2('');
+      
+      if (points > 0) {
+        // Show celebration animation when adding points
+        showConfetti(teamId === currentPair.team1.id ? 0.2 : 0.8, 0.3);
+        playCelebrationSound();
+      }
     } else {
       toast.error("Please enter a valid number");
     }
@@ -119,23 +140,27 @@ const QuestionPane = () => {
       toast.info("Question striked!");
     }
   };
+  
+  const handleNextQuestion = () => {
+    nextQuestion();
+  };
 
   // Count revealed answers for each team
   const team1Answers = currentPair.team1.answers || 0;
   const team2Answers = currentPair.team2.answers || 0;
 
   return (
-    <div className="w-full max-w-4xl mx-auto bg-blue-900 p-6 rounded-lg shadow-lg">
+    <div className="w-full max-w-4xl mx-auto bg-blue-900 p-6 rounded-lg shadow-lg animate-fade-in">
       <div className="mb-8 text-center">
         <h2 className="text-quiz-yellow text-xl font-bold mb-2">
-          Question {currentQuestion.id} of {5}
+          Question {currentQuestionNumber} of {totalQuestions}
         </h2>
       </div>
 
       <div className="mb-8 flex justify-between">
         <div 
           ref={team1ContainerRef}
-          className="bg-blue-800 p-4 rounded w-40 text-center relative"
+          className="bg-blue-800 p-4 rounded w-40 text-center relative hover-glow"
           onDragOver={handleDragOver}
           onDrop={() => handleDrop(currentPair.team1.id)}
         >
@@ -175,7 +200,7 @@ const QuestionPane = () => {
 
         <div 
           ref={team2ContainerRef}
-          className="bg-blue-800 p-4 rounded w-40 text-center relative"
+          className="bg-blue-800 p-4 rounded w-40 text-center relative hover-glow"
           onDragOver={handleDragOver}
           onDrop={() => handleDrop(currentPair.team2.id)}
         >
@@ -218,14 +243,14 @@ const QuestionPane = () => {
         {!currentQuestion.isRevealed ? (
           <Button
             onClick={toggleQuestion}
-            className="w-full bg-quiz-yellow hover:bg-amber-400 text-quiz-blue font-bold py-6 text-xl"
+            className="w-full bg-quiz-yellow hover:bg-amber-400 text-quiz-blue font-bold py-6 text-xl hover-scale"
           >
             Reveal Question
           </Button>
         ) : currentQuestion.isHidden ? (
           <Button
             onClick={toggleQuestion}
-            className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-6 text-xl"
+            className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-6 text-xl hover-scale"
           >
             <Eye className="mr-2" /> Show Question
           </Button>
@@ -281,7 +306,7 @@ const QuestionPane = () => {
               key={answer.id} 
               draggable={answer.isRevealed && !answer.isHidden}
               onDragStart={() => handleDragStart(answer.id)}
-              className={answer.isRevealed && !answer.isHidden ? "cursor-grab" : ""}
+              className={answer.isRevealed && !answer.isHidden ? "cursor-grab hover-scale" : ""}
             >
               {!answer.isRevealed ? (
                 <Button
@@ -352,7 +377,7 @@ const QuestionPane = () => {
       <div className="flex justify-between">
         <Dialog>
           <DialogTrigger asChild>
-            <Button className="bg-blue-700 hover:bg-blue-600 font-medium">
+            <Button className="bg-blue-700 hover:bg-blue-600 font-medium hover-scale">
               Add/Remove Points
             </Button>
           </DialogTrigger>
@@ -421,17 +446,27 @@ const QuestionPane = () => {
 
         <Button 
           onClick={handleStrikeQuestion}
-          className={`${currentQuestion.isStriked ? 'bg-red-700 hover:bg-red-800' : 'bg-red-600 hover:bg-red-700'}`}
+          className={`${currentQuestion.isStriked ? 'bg-red-700 hover:bg-red-800' : 'bg-red-600 hover:bg-red-700'} hover-scale`}
         >
           <Ban className="mr-1" size={16} /> {currentQuestion.isStriked ? 'Remove Strike' : 'Strike'}
         </Button>
 
-        <Button 
-          onClick={finishCurrentPair} 
-          className="bg-quiz-purple hover:bg-purple-700"
-        >
-          Finish Round for This Team Pair
-        </Button>
+        {currentQuestionNumber < totalQuestions ? (
+          <Button 
+            onClick={handleNextQuestion} 
+            className="bg-quiz-purple hover:bg-purple-700 hover-scale flex items-center"
+          >
+            Next Question
+            <ArrowRight size={16} className="ml-1" />
+          </Button>
+        ) : (
+          <Button 
+            onClick={finishCurrentPair} 
+            className="bg-quiz-purple hover:bg-purple-700 hover-scale"
+          >
+            Finish Round
+          </Button>
+        )}
       </div>
     </div>
   );

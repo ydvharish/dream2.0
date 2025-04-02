@@ -6,6 +6,9 @@ export interface Team {
   answers: number;
   isEliminated?: boolean;
   hasPlayed?: boolean;
+  roundScores?: {
+    [key: number]: number;
+  };
 }
 
 export interface Question {
@@ -41,4 +44,10 @@ export interface ExtraQuestion {
   text: string;
   answers: Answer[];
   isRevealed: boolean;
+}
+
+export interface GameResult {
+  champion: Team;
+  runnerUp: Team;
+  finalRoundScore?: string;
 }
