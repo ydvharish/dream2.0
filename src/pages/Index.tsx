@@ -1,18 +1,23 @@
-
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import GameRoundInfo from "@/components/GameRoundInfo";
 import TeamSetup from "@/components/TeamSetup";
+import QuestionSetup from "@/components/QuestionSetup";
 
 const Index = () => {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [setupStep, setSetupStep] = useState<'teams' | 'questions'>('teams');
   const navigate = useNavigate();
   
   const handleStartGame = () => {
     setIsDialogOpen(false);
     navigate('/game');
+  };
+
+  const handleTeamsNext = () => {
+    setSetupStep('questions');
   };
   
   return (
@@ -38,9 +43,15 @@ const Index = () => {
         </DialogTrigger>
         <DialogContent className="sm:max-w-[600px] bg-blue-800 border-blue-600">
           <DialogHeader>
-            <DialogTitle className="text-2xl text-quiz-yellow text-center">Game Setup</DialogTitle>
+            <DialogTitle className="text-2xl text-quiz-yellow text-center">
+              {setupStep === 'teams' ? 'Team Setup' : 'Question Setup'}
+            </DialogTitle>
           </DialogHeader>
-          <TeamSetup onStartGame={handleStartGame} />
+          {setupStep === 'teams' ? (
+            <TeamSetup onStartGame={handleTeamsNext} />
+          ) : (
+            <QuestionSetup onNext={handleStartGame} />
+          )}
         </DialogContent>
       </Dialog>
     </div>

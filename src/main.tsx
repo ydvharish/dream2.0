@@ -1,8 +1,7 @@
 
-import React from 'react';
-import { createRoot } from 'react-dom/client';
-import App from './App.tsx';
-import './index.css';
+import { createRoot } from 'react-dom/client'
+import App from './App.tsx'
+import './index.css'
 
 // Ensure audio can play without user gesture when possible
 document.addEventListener('DOMContentLoaded', () => {
@@ -25,12 +24,4 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 });
 
-const rootElement = document.getElementById("root");
-if (rootElement) {
-  const root = createRoot(rootElement);
-  root.render(
-    <React.StrictMode>
-      <App />
-    </React.StrictMode>
-  );
-}
+createRoot(document.getElementById("root")!).render(<App />);
